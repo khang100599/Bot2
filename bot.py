@@ -4,7 +4,6 @@ import os
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
 import google.generativeai as genai
-import asyncio
 import threading
 import http.server
 import socketserver
@@ -193,16 +192,9 @@ def run_dummy_server():
         print(f"Dummy server running on port {PORT} for Render health check...")
         httpd.serve_forever()
 
-async def main():
+def main():
     # Tạo ứng dụng bot
     application = Application.builder().token(TOKEN).build()
-
-    # Xóa webhook cũ để tránh xung đột
-    await application.bot.delete_webhook(drop_pending_updates=True)
-
-    # Chạy server HTTP giả trong một thread riêng
-    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
-    server_thread.start()
 
     # Thêm lệnh
     application.add_handler(CommandHandler("start", start))
@@ -213,10 +205,13 @@ async def main():
     # Thêm xử lý tin nhắn
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    # Chạy server HTTP giả trong một thread riêng
+    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
+    server_thread.start()
+
     # Bắt đầu bot
     print("Bot đang chạy...")
-    await application.run_polling()
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    # Chạy hàm main bất đồng bộ
-    asyncio.run(main())
+    main()
