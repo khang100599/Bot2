@@ -5,6 +5,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
 import google.generativeai as genai
 import asyncio
+import threading
+import http.server
+import socketserver
 
 # Lấy token và key từ biến môi trường
 TOKEN = os.getenv("BOT_TOKEN")
@@ -120,7 +123,19 @@ async def handle_message(update: Update, context):
         await update.message.reply_text("Xin lỗi, tôi gặp lỗi. Thử lại nhé!")
         print(f"Lỗi Gemini: {e}")
 
+# Hàm chạy server HTTP giả để Render nhận cổng
+def run_dummy_server():
+    PORT = 8080  # Render thường kiểm tra cổng 8080
+    Handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+        print(f"Dummy server running on port {PORT} for Render health check...")
+        httpd.serve_forever()
+
 def main():
+    # Chạy server HTTP giả trong một thread riêng
+    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
+    server_thread.start()
+
     # Tạo ứng dụng bot
     application = Application.builder().token(TOKEN).build()
 
