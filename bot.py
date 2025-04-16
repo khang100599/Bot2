@@ -1,13 +1,18 @@
 import json
 import datetime
+import os
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
 import google.generativeai as genai
 import asyncio
 
-# Thay YOUR_BOT_TOKEN và YOUR_GEMINI_API_KEY
-TOKEN = "7239734549:AAEoo1oYNfnkKgjDZKtJFWHJ9rLEJ68ih1Y"
-GEMINI_API_KEY = "AIzaSyDM47V6KJqmnTAib7TyKMdVDGFi2FXdpCY"
+# Lấy token và key từ biến môi trường
+TOKEN = os.getenv("BOT_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Kiểm tra token/key
+if not TOKEN or not GEMINI_API_KEY:
+    raise ValueError("BOT_TOKEN và GEMINI_API_KEY phải được thiết lập trong biến môi trường")
 
 # Cấu hình Gemini
 genai.configure(api_key=GEMINI_API_KEY)
@@ -104,7 +109,7 @@ async def handle_message(update: Update, context):
         Bạn là trợ lý cửa hàng, trả lời ngắn gọn và chính xác bằng tiếng Việt.
         - Nếu hỏi về địa chỉ: trả lời "Cửa hàng tại 123 Đường ABC, Quận 1, TP.HCM."
         - Nếu hỏi về giá: trả lời giá ví dụ (VD: "Áo 200k, quần 300k") hoặc hỏi lại nếu không rõ sản phẩm.
-        - Nếu yêu cầu ảnh sản phẩm: trả lời "lien he Kiet Loz de xem anh?"
+        - Nếu yêu cầu ảnh sản phẩm: trả lời "Liên hệ Kiet Loz để xem ảnh?"
         - Nếu hỏi mã giảm giá: trả lời "Mã hiện tại: SALE10, giảm 10% đến 30/4/2025."
         - Các câu hỏi khác: trả lời tự nhiên, ngắn gọn.
         Câu hỏi: {text}
