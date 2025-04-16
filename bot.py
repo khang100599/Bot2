@@ -34,22 +34,33 @@ ref = db.reference('groups')
 
 # Đọc dữ liệu từ Firebase
 def load_data():
-    data = ref.get()
-    if data is None:
+    try:
+        data = ref.get()
+        if data is None:
+            return {"groups": {}}
+        return {"groups": data}
+    except Exception as e:
+        print(f"Lỗi khi đọc dữ liệu từ Firebase: {e}")
         return {"groups": {}}
-    return {"groups": data}
 
 # Lưu dữ liệu vào Firebase
 def save_data(data):
-    ref.set(data["groups"])
+    try:
+        ref.set(data["groups"])
+    except Exception as e:
+        print(f"Lỗi khi lưu dữ liệu vào Firebase: {e}")
 
 # Hàm kiểm tra quyền truy cập
 def is_subscribed(chat_id, data):
-    group = data["groups"].get(str(chat_id))
-    if not group:
+    try:
+        group = data["groups"].get(str(chat_id))
+        if not group:
+            return False
+        end_date = datetime.datetime.strptime(group["subscription_end"], "%Y-%m-%d")
+        return end_date >= datetime.datetime.now()
+    except Exception as e:
+        print(f"Lỗi khi kiểm tra quyền truy cập: {e}")
         return False
-    end_date = datetime.datetime.strptime(group["subscription_end"], "%Y-%m-%d")
-    return end_date >= datetime.datetime.now()
 
 # Hàm xử lý lệnh /start
 async def start(update: Update, context):
@@ -58,7 +69,7 @@ async def start(update: Update, context):
     if not is_subscribed(chat_id, data):
         await update.message.reply_text("Group này chưa đăng ký sử dụng bot. Liên hệ admin để thuê!")
         return
-    await update.message.reply_text("Chào! Tôi là bot chống spam và hỗ trợ khách hàng. Hỏi tôi về cửa hàng, giá, sản phẩm nhé!")
+    await update.message.reply_text("Xin chào! Mình là bot hỗ trợ siêu dễ thương đây! Hỏi mình về cửa hàng, giá, hoặc dịch vụ nhé! 😊")
 
 # Hàm lấy ID group
 async def get_id(update: Update, context):
@@ -73,9 +84,14 @@ async def add_spam_keyword(update: Update, context):
         await update.message.reply_text("Group này chưa đăng ký!")
         return
     # Kiểm tra quyền admin
-    admins = [admin.user.id for admin in await context.bot.get_chat_administrators(chat_id)]
-    if update.message.from_user.id not in admins:
-        await update.message.reply_text("Chỉ admin group được dùng lệnh này!")
+    try:
+        admins = [admin.user.id for admin in await context.bot.get_chat_administrators(chat_id)]
+        if update.message.from_user.id not in admins:
+            await update.message.reply_text("Chỉ admin group được dùng lệnh này!")
+            return
+    except Exception as e:
+        await update.message.reply_text("Lỗi khi kiểm tra quyền admin. Thử lại sau!")
+        print(f"Lỗi kiểm tra admin: {e}")
         return
     if not context.args:
         await update.message.reply_text("Vui lòng cung cấp từ khóa! Ví dụ: /addspam quảng_cáo")
@@ -86,7 +102,33 @@ async def add_spam_keyword(update: Update, context):
         data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
     data["groups"][str(chat_id)]["spam_keywords"].append(keyword)
     save_data(data)
-    await update.message.reply_text(f"Đã thêm từ khóa '{keyword}' vào danh sách cấm.")
+    await update.message.reply_text(f"Đã thêm front khóa '{keyword}' vào danh sách cấm.")
+
+# Hàm reset số lần cảnh báo
+async def reset_warnings(update: Update, context):
+    chat_id = update.message.chat.id
+    user_id = update.message.from_user.id
+    data = load_data()
+    if not is_subscribed(chat_id, data):
+        await update.message.reply_text("Group này chưa đăng ký!")
+        return
+    # Kiểm tra quyền admin
+    try:
+        admins = [admin.user.id for admin in await context.bot.get_chat_administrators(chat_id)]
+        if update.message.from_user.id not in admins:
+            await update.message.reply_text("Chỉ admin group được dùng lệnh này!")
+            return
+    except Exception as e:
+        await update.message.reply_text("Lỗi khi kiểm tra quyền admin. Thử lại sau!")
+        print(f"Lỗi kiểm tra admin: {e}")
+        return
+    # Đảm bảo group có cấu trúc dữ liệu
+    if str(chat_id) not in data["groups"]:
+        data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
+    # Reset số lần vi phạm của người dùng
+    data["groups"][str(chat_id)]["violations"][str(user_id)] = 0
+    save_data(data)
+    await update.message.reply_text(f"Đã reset số lần cảnh báo của bạn (@{update.message.from_user.username}) về 0. Bạn an toàn rồi! 😊")
 
 # Hàm xử lý tin nhắn
 async def handle_message(update: Update, context):
@@ -106,26 +148,32 @@ async def handle_message(update: Update, context):
         save_data(data)
 
     # Kiểm tra spam
-    group_data = data["groups"][str(chat_id)]
-    for keyword in group_data["spam_keywords"]:
-        if keyword in text:
-            await message.delete()
-            group_data["violations"][str(user_id)] = group_data["violations"].get(str(user_id), 0) + 1
-            warning = f"@{message.from_user.username} gửi tin nhắn chứa từ khóa cấm ('{keyword}'). Vi phạm lần {group_data['violations'][str(user_id)]}."
-            await context.bot.send_message(chat_id=chat_id, text=warning)
-            if group_data["violations"][str(user_id)] >= group_data["ban_limit"]:
-                await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
-                await context.bot.send_message(chat_id=chat_id, text=f"@{message.from_user.username} đã bị cấm vì vi phạm {group_data['ban_limit']} lần.")
-                group_data["violations"][str(user_id)] = 0
-            save_data(data)
-            return
+    try:
+        group_data = data["groups"][str(chat_id)]
+        for keyword in group_data["spam_keywords"]:
+            if keyword in text:
+                await message.delete()
+                group_data["violations"][str(user_id)] = group_data["violations"].get(str(user_id), 0) + 1
+                warning = f"@{message.from_user.username} gửi tin nhắn chứa từ khóa cấm ('{keyword}'). Vi phạm lần {group_data['violations'][str(user_id)]}."
+                await context.bot.send_message(chat_id=chat_id, text=warning)
+                if group_data["violations"][str(user_id)] >= group_data["ban_limit"]:
+                    await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
+                    await context.bot.send_message(chat_id=chat_id, text=f"@{message.from_user.username} đã bị cấm vì vi phạm {group_data['ban_limit']} lần.")
+                    group_data["violations"][str(user_id)] = 0
+                save_data(data)
+                return
+    except Exception as e:
+        print(f"Lỗi khi kiểm tra spam: {e}")
+        await message.reply_text("Lỗi khi kiểm tra spam. Thử lại sau!")
+        return
 
     # Xử lý yêu cầu bằng Gemini
     try:
         prompt = f"""
         Bạn là trợ lý cửa hàng, trả lời ngắn gọn và chính xác bằng tiếng Việt.
-        - Nếu hỏi về địa chỉ: trả lời "Cửa hàng tại 123 Đường ABC, Quận 1, TP.HCM."
-        - Nếu hỏi về giá: trả lời giá ví dụ (VD: "Áo 200k, quần 300k") hoặc hỏi lại nếu không rõ sản phẩm.
+        - Nếu hỏi về địa chỉ: trả lời "Cửa hàng tại 456 Đường XYZ, Quận 3, TP.HCM."
+        - Nếu hỏi về giá: trả lời giá ví dụ (VD: "Áo 250k, quần 350k, giày 500k") hoặc hỏi lại nếu không rõ sản phẩm.
+        - Nếu hỏi về menu dịch vụ: trả lời "Dịch vụ của chúng tôi: may đo, giặt ủi, sửa quần áo."
         - Nếu yêu cầu ảnh sản phẩm: trả lời "Liên hệ Kiet Loz để xem ảnh?"
         - Nếu hỏi mã giảm giá: trả lời "Mã hiện tại: SALE10, giảm 10% đến 30/4/2025."
         - Các câu hỏi khác: trả lời tự nhiên, ngắn gọn.
@@ -146,6 +194,11 @@ def run_dummy_server():
         httpd.serve_forever()
 
 def main():
+    # Xóa webhook cũ để tránh xung đột
+    from telegram import Bot
+    bot = Bot(token=TOKEN)
+    asyncio.run(bot.delete_webhook(drop_pending_updates=True))
+
     # Chạy server HTTP giả trong một thread riêng
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
@@ -157,6 +210,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("getid", get_id))
     application.add_handler(CommandHandler("addspam", add_spam_keyword))
+    application.add_handler(CommandHandler("resetwarnings", reset_warnings))
 
     # Thêm xử lý tin nhắn
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
