@@ -102,7 +102,7 @@ async def add_spam_keyword(update: Update, context):
         data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
     data["groups"][str(chat_id)]["spam_keywords"].append(keyword)
     save_data(data)
-    await update.message.reply_text(f"Đã thêm front khóa '{keyword}' vào danh sách cấm.")
+    await update.message.reply_text(f"Đã thêm từ khóa '{keyword}' vào danh sách cấm.")
 
 # Hàm reset số lần cảnh báo
 async def reset_warnings(update: Update, context):
@@ -193,18 +193,16 @@ def run_dummy_server():
         print(f"Dummy server running on port {PORT} for Render health check...")
         httpd.serve_forever()
 
-def main():
+async def main():
+    # Tạo ứng dụng bot
+    application = Application.builder().token(TOKEN).build()
+
     # Xóa webhook cũ để tránh xung đột
-    from telegram import Bot
-    bot = Bot(token=TOKEN)
-    asyncio.run(bot.delete_webhook(drop_pending_updates=True))
+    await application.bot.delete_webhook(drop_pending_updates=True)
 
     # Chạy server HTTP giả trong một thread riêng
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
-
-    # Tạo ứng dụng bot
-    application = Application.builder().token(TOKEN).build()
 
     # Thêm lệnh
     application.add_handler(CommandHandler("start", start))
@@ -217,7 +215,8 @@ def main():
 
     # Bắt đầu bot
     print("Bot đang chạy...")
-    application.run_polling()
+    await application.run_polling()
 
 if __name__ == "__main__":
-    main()
+    # Chạy hàm main bất đồng bộ
+    asyncio.run(main())
