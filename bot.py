@@ -1,8 +1,10 @@
 import json
 import datetime
 import os
+import time
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
+from telegram.error import Conflict
 import google.generativeai as genai
 import threading
 import http.server
@@ -61,8 +63,8 @@ def is_subscribed(chat_id, data):
         print(f"Lỗi khi kiểm tra quyền truy cập: {e}")
         return False
 
-# Hàm xử lý lệnh /start
-async def start(update: Update, context):
+# Hàm xử lý lệnh /hệ_thống (trước đây là /start)
+async def hệ_thống(update: Update, context):
     chat_id = update.message.chat.id
     data = load_data()
     if not is_subscribed(chat_id, data):
@@ -70,8 +72,8 @@ async def start(update: Update, context):
         return
     await update.message.reply_text("Xin chào! Mình là bot hỗ trợ siêu dễ thương đây! Hỏi mình về cửa hàng, giá, hoặc dịch vụ nhé! 😊")
 
-# Hàm lấy ID group
-async def get_id(update: Update, context):
+# Hàm xử lý lệnh /gửi_link_group (trước đây là /getid)
+async def gửi_link_group(update: Update, context):
     chat_id = update.message.chat.id
     await update.message.reply_text(f"ID của group này là: {chat_id}")
 
@@ -171,7 +173,7 @@ async def handle_message(update: Update, context):
         prompt = f"""
         Bạn là trợ lý cửa hàng, trả lời ngắn gọn và chính xác bằng tiếng Việt.
         - Nếu hỏi về địa chỉ: trả lời "Bên em có chi nhánh từ quận 9, Bình thạnh, hóc môn, tân bình, tân phú, anh zai ở đâu để e sắp xếp"
-        - Nếu hỏi về giá, menu, dịch vụ: trả lời "dạ a ở quận mấy để em tư vấn thêm cho, bên em có chi nhánh từ quận 9, Bình tân, bình thạnh, tân phú, hóc môn
+        - Nếu hỏi về giá, menu, dịch vụ: trả lời "dạ a ở quận mấy để em tư vấn thêm cho, bên em có chi nhánh từ quận 9, Bình tân, bình thạnh, tân phú, hóc môn"
         - Nếu yêu cầu ảnh ktv trả lời "Liên hệ Kiet Loz để xem ảnh?"
         - Nếu hỏi mã giảm giá: trả lời "Mã hiện tại: SALE10, giảm 10% đến 30/4/2025."
         - Các câu hỏi khác: trả lời tự nhiên, ngắn gọn.
@@ -196,8 +198,8 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     # Thêm lệnh
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("getid", get_id))
+    application.add_handler(CommandHandler("hệ_thống", hệ_thống))
+    application.add_handler(CommandHandler("gửi_link_group", gửi_link_group))
     application.add_handler(CommandHandler("addspam", add_spam_keyword))
     application.add_handler(CommandHandler("resetwarnings", reset_warnings))
 
@@ -208,9 +210,22 @@ def main():
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
 
-    # Bắt đầu bot
-    print("Bot đang chạy...")
-    application.run_polling(drop_pending_updates=True)
+    # Bắt đầu bot với cơ chế retry nếu gặp lỗi Conflict
+    max_retries = 5
+    retry_delay = 10  # Giây
+    for attempt in range(max_retries):
+        try:
+            print(f"Đang thử khởi động bot (lần {attempt + 1}/{max_retries})...")
+            application.run_polling(drop_pending_updates=True)
+            break  # Nếu chạy thành công, thoát vòng lặp
+        except Conflict as e:
+            print(f"Lỗi Conflict: {e}. Đợi {retry_delay} giây trước khi thử lại...")
+            time.sleep(retry_delay)
+        except Exception as e:
+            print(f"Lỗi không mong muốn: {e}. Đợi {retry_delay} giây trước khi thử lại...")
+            time.sleep(retry_delay)
+    else:
+        print(f"Không thể khởi động bot sau {max_retries} lần thử. Vui lòng kiểm tra lại!")
 
 if __name__ == "__main__":
     main()
