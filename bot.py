@@ -205,7 +205,7 @@ def run_dummy_server():
         httpd.serve_forever()
 
 # Hàm main chạy bot
-async def main():
+async def run_bot():
     # Tạo ứng dụng bot
     application = Application.builder().token(TOKEN).build()
 
@@ -218,9 +218,8 @@ async def main():
     # Thêm xử lý tin nhắn
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Chạy server HTTP giả trong một thread riêng
-    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
-    server_thread.start()
+    # Khởi tạo bot
+    await application.initialize()
 
     # Bắt đầu bot với cơ chế retry nếu gặp lỗi Conflict
     max_retries = 5
@@ -232,12 +231,30 @@ async def main():
             break  # Nếu chạy thành công, thoát vòng lặp
         except Conflict as e:
             print(f"Lỗi Conflict: {e}. Đợi {retry_delay} giây trước khi thử lại...")
+            # Dọn dẹp trước khi thử lại
+            await application.stop()
+            await application.shutdown()
             time.sleep(retry_delay)
         except Exception as e:
             print(f"Lỗi không mong muốn: {e}. Đợi {retry_delay} giây trước khi thử lại...")
+            # Dọn dẹp trước khi thử lại
+            await application.stop()
+            await application.shutdown()
             time.sleep(retry_delay)
     else:
         print(f"Không thể khởi động bot sau {max_retries} lần thử. Vui lòng kiểm tra lại!")
+    
+    # Đảm bảo dọn dẹp khi bot dừng
+    await application.stop()
+    await application.shutdown()
+
+async def main():
+    # Chạy server HTTP giả trong một thread riêng
+    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
+    server_thread.start()
+
+    # Chạy bot
+    await run_bot()
 
 if __name__ == "__main__":
     # Chạy main() với asyncio.run() để đảm bảo vòng lặp sự kiện
