@@ -63,8 +63,8 @@ def is_subscribed(chat_id, data):
         print(f"Lỗi khi kiểm tra quyền truy cập: {e}")
         return False
 
-# Hàm xử lý lệnh /hệ_thống (trước đây là /start)
-async def hệ_thống(update: Update, context):
+# Hàm xử lý lệnh /hethong (trước đây là /hệ_thống)
+async def hethong(update: Update, context):
     chat_id = update.message.chat.id
     data = load_data()
     if not is_subscribed(chat_id, data):
@@ -72,10 +72,22 @@ async def hệ_thống(update: Update, context):
         return
     await update.message.reply_text("Xin chào! Mình là bot hỗ trợ siêu dễ thương đây! Hỏi mình về cửa hàng, giá, hoặc dịch vụ nhé! 😊")
 
-# Hàm xử lý lệnh /gửi_link_group (trước đây là /getid)
-async def gửi_link_group(update: Update, context):
+# Hàm xử lý lệnh /guilinkgroup (trước đây là /gửi_link_group)
+async def guilinkgroup(update: Update, context):
     chat_id = update.message.chat.id
-    await update.message.reply_text(f"ID của group này là: {chat_id}")
+    data = load_data()
+    if not is_subscribed(chat_id, data):
+        await update.message.reply_text("Group này chưa đăng ký!")
+        return
+    # Đảm bảo group có cấu trúc dữ liệu
+    if str(chat_id) not in data["groups"]:
+        data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
+        save_data(data)
+    
+    # Lấy link group từ Firebase
+    group_data = data["groups"][str(chat_id)]
+    group_link = group_data.get("group_link", "Chưa có link group. Vui lòng cập nhật trên Firebase!")
+    await update.message.reply_text(f"Link group: {group_link}")
 
 # Hàm thêm từ khóa spam
 async def add_spam_keyword(update: Update, context):
@@ -108,7 +120,7 @@ async def add_spam_keyword(update: Update, context):
 # Hàm reset số lần cảnh báo
 async def reset_warnings(update: Update, context):
     chat_id = update.message.chat.id
-    user_id = update.message.from_user.id
+    user_id = `update.message.from_user.id
     data = load_data()
     if not is_subscribed(chat_id, data):
         await update.message.reply_text("Group này chưa đăng ký!")
@@ -198,8 +210,8 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     # Thêm lệnh
-    application.add_handler(CommandHandler("hệ_thống", hệ_thống))
-    application.add_handler(CommandHandler("gửi_link_group", gửi_link_group))
+    application.add_handler(CommandHandler("hethong", hethong))
+    application.add_handler(CommandHandler("guilinkgroup", guilinkgroup))
     application.add_handler(CommandHandler("addspam", add_spam_keyword))
     application.add_handler(CommandHandler("resetwarnings", reset_warnings))
 
