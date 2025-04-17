@@ -1,269 +1,102 @@
-import json
-import datetime
-import os
-import time
+import logging
 import asyncio
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
-from telegram.error import Conflict
-import google.generativeai as genai
-import threading
-import http.server
-import socketserver
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 import firebase_admin
 from firebase_admin import credentials, db
+import os
+import google.generativeai as genai
 
-# Lấy token và key từ biến môi trường
-TOKEN = os.getenv("BOT_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Cấu hình logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 
-# Kiểm tra token/key
-if not TOKEN or not GEMINI_API_KEY:
-    raise ValueError("BOT_TOKEN và GEMINI_API_KEY phải được thiết lập trong biến môi trường")
+# Lấy token và API key từ biến môi trường
+TOKEN = os.environ.get("BOT_TOKEN")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Cấu hình Gemini
+# Cấu hình Gemini AI
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-pro")
 
-# Cấu hình Firebase
-cred = credentials.Certificate("/etc/secrets/firebase-service-account.json")
+# Kết nối Firebase
+cred = credentials.Certificate("serviceAccountKey.json")
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://bot2-eb694-default-rtdb.asia-southeast1.firebasedatabase.app/'
+    "databaseURL": "https://telegram-antispam-default-rtdb.firebaseio.com/"
 })
+ref = db.reference("/data")
 
-# Tham chiếu đến dữ liệu trong Firebase
-ref = db.reference('groups')
+# Từ khóa spam
+SPAM_KEYWORDS = ["spam", "link", "check my profile", "free money", "crypto", "airdrop", "pump", "moon", "earn", "join now"]
 
-# Đọc dữ liệu từ Firebase
-def load_data():
-    try:
-        data = ref.get()
-        if data is None:
-            return {"groups": {}}
-        return {"groups": data}
-    except Exception as e:
-        print(f"Lỗi khi đọc dữ liệu từ Firebase: {e}")
-        return {"groups": {}}
+# Lệnh /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 Chào bạn! Tôi là bot chống spam tích hợp Gemini AI.")
 
-# Lưu dữ liệu vào Firebase
-def save_data(data):
-    try:
-        ref.set(data["groups"])
-    except Exception as e:
-        print(f"Lỗi khi lưu dữ liệu vào Firebase: {e}")
-
-# Hàm kiểm tra quyền truy cập
-def is_subscribed(chat_id, data):
-    try:
-        group = data["groups"].get(str(chat_id))
-        if not group:
-            return False
-        end_date = datetime.datetime.strptime(group["subscription_end"], "%Y-%m-%d")
-        return end_date >= datetime.datetime.now()
-    except Exception as e:
-        print(f"Lỗi khi kiểm tra quyền truy cập: {e}")
-        return False
-
-# Hàm xử lý lệnh /hethong
-async def hethong(update: Update, context):
-    chat_id = update.message.chat.id
-    data = load_data()
-    if not is_subscribed(chat_id, data):
-        await update.message.reply_text("Group này chưa đăng ký sử dụng bot. Liên hệ admin để thuê!")
+# Xử lý tin nhắn
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
         return
-    await update.message.reply_text("Xin chào! Mình là bot hỗ trợ siêu dễ thương đây! Hỏi mình về cửa hàng, giá, hoặc dịch vụ nhé! 😊")
 
-# Hàm xử lý lệnh /guilinkgroup (trả về ID group)
-async def guilinkgroup(update: Update, context):
-    chat_id = update.message.chat.id
-    data = load_data()
-    if not is_subscribed(chat_id, data):
-        await update.message.reply_text("Group này chưa đăng ký!")
-        return
-    # Đảm bảo group có cấu trúc dữ liệu
-    if str(chat_id) not in data["groups"]:
-        data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
-        save_data(data)
-    
-    # Trả về ID group
-    await update.message.reply_text(f"ID group: {chat_id}")
-
-# Hàm thêm từ khóa spam
-async def add_spam_keyword(update: Update, context):
-    chat_id = update.message.chat.id
-    data = load_data()
-    if not is_subscribed(chat_id, data):
-        await update.message.reply_text("Group này chưa đăng ký!")
-        return
-    # Kiểm tra quyền admin
-    try:
-        admins = [admin.user.id for admin in await context.bot.get_chat_administrators(chat_id)]
-        if update.message.from_user.id not in admins:
-            await update.message.reply_text("Chỉ admin group được dùng lệnh này!")
-            return
-    except Exception as e:
-        await update.message.reply_text("Lỗi khi kiểm tra quyền admin. Thử lại sau!")
-        print(f"Lỗi kiểm tra admin: {e}")
-        return
-    if not context.args:
-        await update.message.reply_text("Vui lòng cung cấp từ khóa! Ví dụ: /addspam quảng_cáo")
-        return
-    keyword = context.args[0].lower()
-    # Đảm bảo group có cấu trúc dữ liệu
-    if str(chat_id) not in data["groups"]:
-        data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
-    data["groups"][str(chat_id)]["spam_keywords"].append(keyword)
-    save_data(data)
-    await update.message.reply_text(f"Đã thêm từ khóa '{keyword}' vào danh sách cấm.")
-
-# Hàm reset số lần cảnh báo
-async def reset_warnings(update: Update, context):
-    chat_id = update.message.chat.id
-    user_id = update.message.from_user.id
-    data = load_data()
-    if not is_subscribed(chat_id, data):
-        await update.message.reply_text("Group này chưa đăng ký!")
-        return
-    # Kiểm tra quyền admin
-    try:
-        admins = [admin.user.id for admin in await context.bot.get_chat_administrators(chat_id)]
-        if update.message.from_user.id not in admins:
-            await update.message.reply_text("Chỉ admin group được dùng lệnh này!")
-            return
-    except Exception as e:
-        await update.message.reply_text("Lỗi khi kiểm tra quyền admin. Thử lại sau!")
-        print(f"Lỗi kiểm tra admin: {e}")
-        return
-    # Đảm bảo group có cấu trúc dữ liệu
-    if str(chat_id) not in data["groups"]:
-        data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
-    # Reset số lần vi phạm của người dùng
-    data["groups"][str(chat_id)]["violations"][str(user_id)] = 0
-    save_data(data)
-    await update.message.reply_text(f"Đã reset số lần cảnh báo của bạn (@{update.message.from_user.username}) về 0. Bạn an toàn rồi! 😊")
-
-# Hàm xử lý tin nhắn
-async def handle_message(update: Update, context):
     message = update.message
-    chat_id = message.chat.id
-    user_id = message.from_user.id
+    user_id = str(message.from_user.id)
+    group_id = str(message.chat.id)
     text = message.text.lower()
 
-    # Kiểm tra quyền truy cập
-    data = load_data()
-    if not is_subscribed(chat_id, data):
-        return  # Không phản hồi nếu group chưa đăng ký
-
-    # Đảm bảo group có cấu trúc dữ liệu
-    if str(chat_id) not in data["groups"]:
-        data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
-        save_data(data)
+    # Lấy dữ liệu từ Firebase
+    data = ref.child(group_id).get() or {}
+    user_data = data.get(user_id, {"count": 0})
+    count = user_data["count"]
 
     # Kiểm tra spam
-    try:
-        group_data = data["groups"][str(chat_id)]
-        for keyword in group_data["spam_keywords"]:
-            if keyword in text:
-                await message.delete()
-                group_data["violations"][str(user_id)] = group_data["violations"].get(str(user_id), 0) + 1
-                warning = f"@{message.from_user.username} gửi tin nhắn chứa từ khóa cấm ('{keyword}'). Vi phạm lần {group_data['violations'][str(user_id)]}."
-                await context.bot.send_message(chat_id=chat_id, text=warning)
-                if group_data["violations"][str(user_id)] >= group_data["ban_limit"]:
-                    await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
-                    await context.bot.send_message(chat_id=chat_id, text=f"@{message.from_user.username} đã bị cấm vì vi phạm {group_data['ban_limit']} lần.")
-                    group_data["violations"][str(user_id)] = 0
-                save_data(data)
-                return
-    except Exception as e:
-        print(f"Lỗi khi kiểm tra spam: {e}")
-        await message.reply_text("Lỗi khi kiểm tra spam. Thử lại sau!")
+    if any(keyword in text for keyword in SPAM_KEYWORDS):
+        count += 1
+        user_data["count"] = count
+        data[user_id] = user_data
+        ref.child(group_id).set(data)
+
+        if count >= 3:
+            await message.reply_text("🚫 Bạn đã bị cấm do spam quá nhiều!")
+            await context.bot.ban_chat_member(chat_id=message.chat.id, user_id=message.from_user.id)
+        else:
+            await message.reply_text(f"⚠️ Cảnh báo spam ({count}/3)!")
         return
 
-    # Xử lý yêu cầu bằng Gemini
+    # Nếu không spam, gọi Gemini AI
     try:
-        prompt = f"""
-        Bạn là trợ lý cửa hàng, trả lời ngắn gọn và chính xác bằng tiếng Việt.
-        - Nếu hỏi về địa chỉ: trả lời "Bên em có chi nhánh từ quận 9, Bình thạnh, hóc môn, tân bình, tân phú, anh zai ở đâu để e sắp xếp"
-        - Nếu hỏi về giá, menu, dịch vụ: trả lời "dạ a ở quận mấy để em tư vấn thêm cho, bên em có chi nhánh từ quận 9, Bình tân, bình thạnh, tân phú, hóc môn"
-        - Nếu yêu cầu ảnh ktv trả lời "Liên hệ Kiet Loz để xem ảnh?"
-        - Nếu hỏi mã giảm giá: trả lời "Mã hiện tại: SALE10, giảm 10% đến 30/4/2025."
-        - Các câu hỏi khác: trả lời tự nhiên, ngắn gọn.
-        Câu hỏi: {text}
-        """
-        response = model.generate_content(prompt)
-        await message.reply_text(response.text)
+        await message.chat.send_action(action="typing")
+        response = model.generate_content(message.text)
+        reply = response.text.strip() if response.text else "🤖 AI không có phản hồi phù hợp."
+        await message.reply_text(reply)
     except Exception as e:
-        await update.message.reply_text("Xin lỗi, tôi gặp lỗi. Thử lại nhé!")
-        print(f"Lỗi Gemini: {e}")
+        logging.error(f"Lỗi khi gọi Gemini: {e}")
+        await message.reply_text("❌ Lỗi khi xử lý yêu cầu AI. Vui lòng thử lại sau.")
 
-# Hàm chạy server HTTP giả để Render nhận cổng
-def run_dummy_server():
-    PORT = 8080  # Render thường kiểm tra cổng 8080
-    Handler = http.server.SimpleHTTPRequestHandler
-    try:
-        with socketserver.TCPServer(("", PORT), Handler) as httpd:
-            print(f"Dummy server running on port {PORT} for Render health check...")
-            httpd.serve_forever()
-    except Exception as e:
-        print(f"Lỗi khi chạy dummy server: {e}")
-
-# Hàm chạy bot
-async def run_bot():
-    # Tạo ứng dụng bot
+# Hàm chính chạy bot
+async def main():
     application = Application.builder().token(TOKEN).build()
 
-    # Thêm lệnh
-    application.add_handler(CommandHandler("hethong", hethong))
-    application.add_handler(CommandHandler("guilinkgroup", guilinkgroup))
-    application.add_handler(CommandHandler("addspam", add_spam_keyword))
-    application.add_handler(CommandHandler("resetwarnings", reset_warnings))
-
-    # Thêm xử lý tin nhắn
+    application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Khởi tạo bot
-    try:
-        await application.initialize()
-        print("Bot đã được khởi tạo thành công.")
-    except Exception as e:
-        print(f"Lỗi khi khởi tạo bot: {e}")
-        return
+    await application.initialize()
+    await application.start()
+    print("✅ Bot đang chạy...")
+    await application.updater.start_polling()
+    await application.updater.idle()
 
-    # Bắt đầu bot với cơ chế retry nếu gặp lỗi Conflict
-    max_retries = 5
-    retry_delay = 10  # Giây
-    for attempt in range(max_retries):
-        try:
-            print(f"Đang thử khởi động bot (lần {attempt + 1}/{max_retries})...")
-            await application.run_polling(drop_pending_updates=True)
-            break  # Nếu chạy thành công, thoát vòng lặp
-        except Conflict as e:
-            print(f"Lỗi Conflict: {e}. Đợi {retry_delay} giây trước khi thử lại...")
-            time.sleep(retry_delay)
-        except Exception as e:
-            print(f"Lỗi không mong muốn: {e}. Đợi {retry_delay} giây trước khi thử lại...")
-            time.sleep(retry_delay)
-    
-    # Dọn dẹp tài nguyên khi bot dừng
-    try:
-        await application.stop()
-        await application.shutdown()
-        print("Bot đã dừng và dọn dẹp tài nguyên thành công.")
-    except Exception as e:
-        print(f"Lỗi khi dừng bot: {e}")
+    await application.stop()
+    await application.shutdown()
 
-# Hàm chính
-async def main():
-    # Chạy server HTTP giả trong một thread riêng
-    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
-    server_thread.start()
-
-    # Chạy bot
-    await run_bot()
-
+# Khởi động bot
 if __name__ == "__main__":
-    # Chạy main() với asyncio.run() để đảm bảo vòng lặp sự kiện
     try:
-        asyncio.run(main())
-    except Exception as e:
-        print(f"Lỗi khi chạy chương trình: {e}")
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
+    except RuntimeError as e:
+        if "already running" in str(e):
+            print("⚠️ Event loop đã chạy sẵn.")
+        else:
+            raise
