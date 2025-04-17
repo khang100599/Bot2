@@ -1,11 +1,10 @@
 import json
 import datetime
 import os
-import time
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
-from telegram.error import Conflict
 import google.generativeai as genai
+import asyncio
 import threading
 import http.server
 import socketserver
@@ -63,8 +62,8 @@ def is_subscribed(chat_id, data):
         print(f"Lỗi khi kiểm tra quyền truy cập: {e}")
         return False
 
-# Hàm xử lý lệnh /hethong (trước đây là /hệ_thống)
-async def hethong(update: Update, context):
+# Hàm xử lý lệnh /start
+async def start(update: Update, context):
     chat_id = update.message.chat.id
     data = load_data()
     if not is_subscribed(chat_id, data):
@@ -72,22 +71,10 @@ async def hethong(update: Update, context):
         return
     await update.message.reply_text("Xin chào! Mình là bot hỗ trợ siêu dễ thương đây! Hỏi mình về cửa hàng, giá, hoặc dịch vụ nhé! 😊")
 
-# Hàm xử lý lệnh /guilinkgroup (trước đây là /gửi_link_group)
-async def guilinkgroup(update: Update, context):
+# Hàm lấy ID group
+async def get_id(update: Update, context):
     chat_id = update.message.chat.id
-    data = load_data()
-    if not is_subscribed(chat_id, data):
-        await update.message.reply_text("Group này chưa đăng ký!")
-        return
-    # Đảm bảo group có cấu trúc dữ liệu
-    if str(chat_id) not in data["groups"]:
-        data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
-        save_data(data)
-    
-    # Lấy link group từ Firebase
-    group_data = data["groups"][str(chat_id)]
-    group_link = group_data.get("group_link", "Chưa có link group. Vui lòng cập nhật trên Firebase!")
-    await update.message.reply_text(f"Link group: {group_link}")
+    await update.message.reply_text(f"ID của group này là: {chat_id}")
 
 # Hàm thêm từ khóa spam
 async def add_spam_keyword(update: Update, context):
@@ -115,12 +102,12 @@ async def add_spam_keyword(update: Update, context):
         data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
     data["groups"][str(chat_id)]["spam_keywords"].append(keyword)
     save_data(data)
-    await update.message.reply_text(f"Đã thêm từ khóa '{keyword}' vào danh sách cấm.")
+    await update.message.reply_text(f"Đã thêm front khóa '{keyword}' vào danh sách cấm.")
 
 # Hàm reset số lần cảnh báo
 async def reset_warnings(update: Update, context):
     chat_id = update.message.chat.id
-    user_id = `update.message.from_user.id
+    user_id = update.message.from_user.id
     data = load_data()
     if not is_subscribed(chat_id, data):
         await update.message.reply_text("Group này chưa đăng ký!")
@@ -184,9 +171,10 @@ async def handle_message(update: Update, context):
     try:
         prompt = f"""
         Bạn là trợ lý cửa hàng, trả lời ngắn gọn và chính xác bằng tiếng Việt.
-        - Nếu hỏi về địa chỉ: trả lời "Bên em có chi nhánh từ quận 9, Bình thạnh, hóc môn, tân bình, tân phú, anh zai ở đâu để e sắp xếp"
-        - Nếu hỏi về giá, menu, dịch vụ: trả lời "dạ a ở quận mấy để em tư vấn thêm cho, bên em có chi nhánh từ quận 9, Bình tân, bình thạnh, tân phú, hóc môn"
-        - Nếu yêu cầu ảnh ktv trả lời "Liên hệ Kiet Loz để xem ảnh?"
+        - Nếu hỏi về địa chỉ: trả lời "Cửa hàng tại 456 Đường XYZ, Quận 3, TP.HCM."
+        - Nếu hỏi về giá: trả lời giá ví dụ (VD: "Áo 250k, quần 350k, giày 500k") hoặc hỏi lại nếu không rõ sản phẩm.
+        - Nếu hỏi về menu dịch vụ: trả lời "Dịch vụ của chúng tôi: may đo, giặt ủi, sửa quần áo."
+        - Nếu yêu cầu ảnh sản phẩm: trả lời "Liên hệ Kiet Loz để xem ảnh?"
         - Nếu hỏi mã giảm giá: trả lời "Mã hiện tại: SALE10, giảm 10% đến 30/4/2025."
         - Các câu hỏi khác: trả lời tự nhiên, ngắn gọn.
         Câu hỏi: {text}
@@ -206,38 +194,30 @@ def run_dummy_server():
         httpd.serve_forever()
 
 def main():
+    # Xóa webhook cũ để tránh xung đột
+    from telegram import Bot
+    bot = Bot(token=TOKEN)
+    asyncio.run(bot.delete_webhook(drop_pending_updates=True))
+
+    # Chạy server HTTP giả trong một thread riêng
+    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
+    server_thread.start()
+
     # Tạo ứng dụng bot
     application = Application.builder().token(TOKEN).build()
 
     # Thêm lệnh
-    application.add_handler(CommandHandler("hethong", hethong))
-    application.add_handler(CommandHandler("guilinkgroup", guilinkgroup))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("getid", get_id))
     application.add_handler(CommandHandler("addspam", add_spam_keyword))
     application.add_handler(CommandHandler("resetwarnings", reset_warnings))
 
     # Thêm xử lý tin nhắn
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Chạy server HTTP giả trong một thread riêng
-    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
-    server_thread.start()
-
-    # Bắt đầu bot với cơ chế retry nếu gặp lỗi Conflict
-    max_retries = 5
-    retry_delay = 10  # Giây
-    for attempt in range(max_retries):
-        try:
-            print(f"Đang thử khởi động bot (lần {attempt + 1}/{max_retries})...")
-            application.run_polling(drop_pending_updates=True)
-            break  # Nếu chạy thành công, thoát vòng lặp
-        except Conflict as e:
-            print(f"Lỗi Conflict: {e}. Đợi {retry_delay} giây trước khi thử lại...")
-            time.sleep(retry_delay)
-        except Exception as e:
-            print(f"Lỗi không mong muốn: {e}. Đợi {retry_delay} giây trước khi thử lại...")
-            time.sleep(retry_delay)
-    else:
-        print(f"Không thể khởi động bot sau {max_retries} lần thử. Vui lòng kiểm tra lại!")
+    # Bắt đầu bot
+    print("Bot đang chạy...")
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
