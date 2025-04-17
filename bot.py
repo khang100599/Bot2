@@ -170,10 +170,9 @@ async def handle_message(update: Update, context):
     try:
         prompt = f"""
         Bạn là trợ lý cửa hàng, trả lời ngắn gọn và chính xác bằng tiếng Việt.
-        - Nếu hỏi về địa chỉ: trả lời "Cửa hàng tại 456 Đường XYZ, Quận 3, TP.HCM."
-        - Nếu hỏi về giá: trả lời giá ví dụ (VD: "Áo 250k, quần 350k, giày 500k") hoặc hỏi lại nếu không rõ sản phẩm.
-        - Nếu hỏi về menu dịch vụ: trả lời "Dịch vụ của chúng tôi: may đo, giặt ủi, sửa quần áo."
-        - Nếu yêu cầu ảnh sản phẩm: trả lời "Liên hệ Kiet Loz để xem ảnh?"
+        - Nếu hỏi về địa chỉ: trả lời "Bên em có chi nhánh từ quận 9, Bình thạnh, hóc môn, tân bình, tân phú, anh zai ở đâu để e sắp xếp"
+        - Nếu hỏi về giá, menu, dịch vụ: trả lời "dạ a ở quận mấy để em tư vấn thêm cho, bên em có chi nhánh từ quận 9, Bình tân, bình thạnh, tân phú, hóc môn
+        - Nếu yêu cầu ảnh ktv trả lời "Liên hệ Kiet Loz để xem ảnh?"
         - Nếu hỏi mã giảm giá: trả lời "Mã hiện tại: SALE10, giảm 10% đến 30/4/2025."
         - Các câu hỏi khác: trả lời tự nhiên, ngắn gọn.
         Câu hỏi: {text}
