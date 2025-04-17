@@ -1,7 +1,6 @@
 import json
 import datetime
 import os
-import time
 import asyncio
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
@@ -206,6 +205,7 @@ def run_dummy_server():
             httpd.serve_forever()
     except Exception as e:
         print(f"Lỗi khi chạy dummy server: {e}")
+        raise
 
 # Hàm chạy bot
 async def run_bot():
@@ -227,27 +227,26 @@ async def run_bot():
         print("Bot đã được khởi tạo thành công.")
     except Exception as e:
         print(f"Lỗi khi khởi tạo bot: {e}")
-        return False
+        raise
 
     # Chạy bot
     try:
         print("Đang khởi động bot...")
         await application.run_polling(drop_pending_updates=True)
     except Conflict as e:
-        print(f"Lỗi Conflict: {e}. Bot sẽ khởi động lại sau 10 giây...")
-        return False
+        print(f"Lỗi Conflict: {e}. Vui lòng kiểm tra xem bot có đang chạy ở nơi khác không!")
+        raise
     except Exception as e:
-        print(f"Lỗi không mong muốn: {e}. Bot sẽ khởi động lại sau 10 giây...")
-        return False
-
-    # Dọn dẹp tài nguyên
-    try:
-        await application.stop()
-        await application.shutdown()
-        print("Bot đã dừng và dọn dẹp tài nguyên thành công.")
-    except Exception as e:
-        print(f"Lỗi khi dừng bot: {e}")
-    return True
+        print(f"Lỗi không mong muốn: {e}")
+        raise
+    finally:
+        # Dọn dẹp tài nguyên
+        try:
+            await application.stop()
+            await application.shutdown()
+            print("Bot đã dừng và dọn dẹp tài nguyên thành công.")
+        except Exception as e:
+            print(f"Lỗi khi dừng bot: {e}")
 
 # Hàm chính
 async def main():
@@ -255,17 +254,8 @@ async def main():
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
 
-    # Retry khởi động bot nếu gặp lỗi
-    max_retries = 5
-    retry_delay = 10  # Giây
-    for attempt in range(max_retries):
-        success = await run_bot()
-        if success:
-            break
-        print(f"Thử lại lần {attempt + 1}/{max_retries} sau {retry_delay} giây...")
-        await asyncio.sleep(retry_delay)
-    else:
-        print(f"Không thể khởi động bot sau {max_retries} lần thử. Vui lòng kiểm tra lại!")
+    # Chạy bot
+    await run_bot()
 
 if __name__ == "__main__":
     # Chạy main() với asyncio.run() để đảm bảo vòng lặp sự kiện
@@ -273,3 +263,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         print(f"Lỗi khi chạy chương trình: {e}")
+        # Thoát với mã lỗi để Render tự động khởi động lại
+        exit(1)
