@@ -200,11 +200,14 @@ async def handle_message(update: Update, context):
 def run_dummy_server():
     PORT = 8080  # Render thường kiểm tra cổng 8080
     Handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", PORT), Handler) as httpd:
-        print(f"Dummy server running on port {PORT} for Render health check...")
-        httpd.serve_forever()
+    try:
+        with socketserver.TCPServer(("", PORT), Handler) as httpd:
+            print(f"Dummy server running on port {PORT} for Render health check...")
+            httpd.serve_forever()
+    except Exception as e:
+        print(f"Lỗi khi chạy dummy server: {e}")
 
-# Hàm main chạy bot
+# Hàm chạy bot
 async def run_bot():
     # Tạo ứng dụng bot
     application = Application.builder().token(TOKEN).build()
@@ -219,7 +222,12 @@ async def run_bot():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Khởi tạo bot
-    await application.initialize()
+    try:
+        await application.initialize()
+        print("Bot đã được khởi tạo thành công.")
+    except Exception as e:
+        print(f"Lỗi khi khởi tạo bot: {e}")
+        return
 
     # Bắt đầu bot với cơ chế retry nếu gặp lỗi Conflict
     max_retries = 5
@@ -231,23 +239,20 @@ async def run_bot():
             break  # Nếu chạy thành công, thoát vòng lặp
         except Conflict as e:
             print(f"Lỗi Conflict: {e}. Đợi {retry_delay} giây trước khi thử lại...")
-            # Dọn dẹp trước khi thử lại
-            await application.stop()
-            await application.shutdown()
             time.sleep(retry_delay)
         except Exception as e:
             print(f"Lỗi không mong muốn: {e}. Đợi {retry_delay} giây trước khi thử lại...")
-            # Dọn dẹp trước khi thử lại
-            await application.stop()
-            await application.shutdown()
             time.sleep(retry_delay)
-    else:
-        print(f"Không thể khởi động bot sau {max_retries} lần thử. Vui lòng kiểm tra lại!")
     
-    # Đảm bảo dọn dẹp khi bot dừng
-    await application.stop()
-    await application.shutdown()
+    # Dọn dẹp tài nguyên khi bot dừng
+    try:
+        await application.stop()
+        await application.shutdown()
+        print("Bot đã dừng và dọn dẹp tài nguyên thành công.")
+    except Exception as e:
+        print(f"Lỗi khi dừng bot: {e}")
 
+# Hàm chính
 async def main():
     # Chạy server HTTP giả trong một thread riêng
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
@@ -258,4 +263,7 @@ async def main():
 
 if __name__ == "__main__":
     # Chạy main() với asyncio.run() để đảm bảo vòng lặp sự kiện
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"Lỗi khi chạy chương trình: {e}")
