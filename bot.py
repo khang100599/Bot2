@@ -227,35 +227,27 @@ async def run_bot():
         print("Bot đã được khởi tạo thành công.")
     except Exception as e:
         print(f"Lỗi khi khởi tạo bot: {e}")
-        return
+        return False
 
-    # Bắt đầu bot với cơ chế retry nếu gặp lỗi Conflict
-    max_retries = 5
-    retry_delay = 10  # Giây
-    success = False
-    for attempt in range(max_retries):
-        try:
-            print(f"Đang thử khởi động bot (lần {attempt + 1}/{max_retries})...")
-            await application.run_polling(drop_pending_updates=True)
-            success = True
-            break  # Nếu chạy thành công, thoát vòng lặp
-        except Conflict as e:
-            print(f"Lỗi Conflict: {e}. Đợi {retry_delay} giây trước khi thử lại...")
-            time.sleep(retry_delay)
-        except Exception as e:
-            print(f"Lỗi không mong muốn: {e}. Đợi {retry_delay} giây trước khi thử lại...")
-            time.sleep(retry_delay)
+    # Chạy bot
+    try:
+        print("Đang khởi động bot...")
+        await application.run_polling(drop_pending_updates=True)
+    except Conflict as e:
+        print(f"Lỗi Conflict: {e}. Bot sẽ khởi động lại sau 10 giây...")
+        return False
+    except Exception as e:
+        print(f"Lỗi không mong muốn: {e}. Bot sẽ khởi động lại sau 10 giây...")
+        return False
 
-    # Dọn dẹp tài nguyên sau khi vòng lặp retry kết thúc
-    if success:
-        try:
-            await application.stop()
-            await application.shutdown()
-            print("Bot đã dừng và dọn dẹp tài nguyên thành công.")
-        except Exception as e:
-            print(f"Lỗi khi dừng bot: {e}")
-    else:
-        print(f"Không thể khởi động bot sau {max_retries} lần thử. Vui lòng kiểm tra lại!")
+    # Dọn dẹp tài nguyên
+    try:
+        await application.stop()
+        await application.shutdown()
+        print("Bot đã dừng và dọn dẹp tài nguyên thành công.")
+    except Exception as e:
+        print(f"Lỗi khi dừng bot: {e}")
+    return True
 
 # Hàm chính
 async def main():
@@ -263,8 +255,17 @@ async def main():
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
 
-    # Chạy bot
-    await run_bot()
+    # Retry khởi động bot nếu gặp lỗi
+    max_retries = 5
+    retry_delay = 10  # Giây
+    for attempt in range(max_retries):
+        success = await run_bot()
+        if success:
+            break
+        print(f"Thử lại lần {attempt + 1}/{max_retries} sau {retry_delay} giây...")
+        await asyncio.sleep(retry_delay)
+    else:
+        print(f"Không thể khởi động bot sau {max_retries} lần thử. Vui lòng kiểm tra lại!")
 
 if __name__ == "__main__":
     # Chạy main() với asyncio.run() để đảm bảo vòng lặp sự kiện
