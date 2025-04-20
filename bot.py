@@ -5,24 +5,18 @@ import asyncio
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
 from telegram.error import Conflict
-import google.generativeai as genai
 import threading
 import http.server
 import socketserver
 import firebase_admin
 from firebase_admin import credentials, db
 
-# Lấy token và key từ biến môi trường
+# Lấy token từ biến môi trường
 TOKEN = os.getenv("BOT_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Kiểm tra token/key
-if not TOKEN or not GEMINI_API_KEY:
-    raise ValueError("BOT_TOKEN và GEMINI_API_KEY phải được thiết lập trong biến môi trường")
-
-# Cấu hình Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+# Kiểm tra token
+if not TOKEN:
+    raise ValueError("BOT_TOKEN phải được thiết lập trong biến môi trường")
 
 # Cấu hình Firebase
 cred = credentials.Certificate("/etc/secrets/firebase-service-account.json")
@@ -63,14 +57,14 @@ def is_subscribed(chat_id, data):
         print(f"Lỗi khi kiểm tra quyền truy cập: {e}")
         return False
 
-# Hàm xử lý lệnh /hethong
-async def hethong(update: Update, context):
+# Hàm xử lý lệnh /start (trước đây là /hethong)
+async def start(update: Update, context):
     chat_id = update.message.chat.id
     data = load_data()
     if not is_subscribed(chat_id, data):
         await update.message.reply_text("Group này chưa đăng ký sử dụng bot. Liên hệ admin để thuê!")
         return
-    await update.message.reply_text("Xin chào! Mình là bot hỗ trợ siêu dễ thương đây! Hỏi mình về cửa hàng, giá, hoặc dịch vụ nhé! 😊")
+    await update.message.reply_text("Xin chào! Mình là bot hỗ trợ đây! Dùng các lệnh như /guilinkgroup, /addspam, /resetwarnings để quản lý group nhé!")
 
 # Hàm xử lý lệnh /guilinkgroup (trả về ID group)
 async def guilinkgroup(update: Update, context):
@@ -141,7 +135,7 @@ async def reset_warnings(update: Update, context):
     save_data(data)
     await update.message.reply_text(f"Đã reset số lần cảnh báo của bạn (@{update.message.from_user.username}) về 0. Bạn an toàn rồi! 😊")
 
-# Hàm xử lý tin nhắn
+# Hàm xử lý tin nhắn để kiểm tra spam
 async def handle_message(update: Update, context):
     message = update.message
     chat_id = message.chat.id
@@ -176,24 +170,6 @@ async def handle_message(update: Update, context):
     except Exception as e:
         print(f"Lỗi khi kiểm tra spam: {e}")
         await message.reply_text("Lỗi khi kiểm tra spam. Thử lại sau!")
-        return
-
-    # Xử lý yêu cầu bằng Gemini
-    try:
-        prompt = f"""
-        Bạn là trợ lý cửa hàng, trả lời ngắn gọn và chính xác bằng tiếng Việt.
-        - Nếu hỏi về địa chỉ: trả lời "Bên em có chi nhánh từ quận 9, Bình thạnh, hóc môn, tân bình, tân phú, anh zai ở đâu để e sắp xếp"
-        - Nếu hỏi về giá, menu, dịch vụ: trả lời "dạ a ở quận mấy để em tư vấn thêm cho, bên em có chi nhánh từ quận 9, Bình tân, bình thạnh, tân phú, hóc môn"
-        - Nếu yêu cầu ảnh ktv trả lời "Liên hệ Kiet Loz để xem ảnh?"
-        - Nếu hỏi mã giảm giá: trả lời "Mã hiện tại: SALE10, giảm 10% đến 30/4/2025."
-        - Các câu hỏi khác: trả lời tự nhiên, ngắn gọn.
-        Câu hỏi: {text}
-        """
-        response = model.generate_content(prompt)
-        await message.reply_text(response.text)
-    except Exception as e:
-        await update.message.reply_text("Xin lỗi, tôi gặp lỗi. Thử lại nhé!")
-        print(f"Lỗi Gemini: {e}")
 
 # Hàm chạy server HTTP giả để Render nhận cổng
 def run_dummy_server():
@@ -213,12 +189,12 @@ async def run_bot():
     application = Application.builder().token(TOKEN).build()
 
     # Thêm lệnh
-    application.add_handler(CommandHandler("hethong", hethong))
+    application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("guilinkgroup", guilinkgroup))
     application.add_handler(CommandHandler("addspam", add_spam_keyword))
     application.add_handler(CommandHandler("resetwarnings", reset_warnings))
 
-    # Thêm xử lý tin nhắn
+    # Thêm xử lý tin nhắn để kiểm tra spam
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Khởi tạo bot
