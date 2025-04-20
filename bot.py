@@ -2,6 +2,7 @@ import json
 import datetime
 import os
 import asyncio
+import time
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
 from telegram.error import Conflict
@@ -212,61 +213,69 @@ def run_dummy_server():
         print(f"Lỗi khi chạy dummy server: {e}")
         raise
 
-# Hàm chạy bot
-async def run_bot():
-    # Tạo ứng dụng bot
-    application = Application.builder().token(TOKEN).build()
+# Hàm chạy bot với vòng lặp retry
+async def run_bot_with_retry():
+    while True:
+        # Tạo vòng lặp sự kiện mới
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Tạo ứng dụng bot
+        application = Application.builder().token(TOKEN).build()
 
-    # Thêm lệnh
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("guilinkgroup", guilinkgroup))
-    application.add_handler(CommandHandler("addspam", add_spam_keyword))
-    application.add_handler(CommandHandler("resetwarnings", reset_warnings))
+        # Thêm lệnh
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("guilinkgroup", guilinkgroup))
+        application.add_handler(CommandHandler("addspam", add_spam_keyword))
+        application.add_handler(CommandHandler("resetwarnings", reset_warnings))
 
-    # Thêm xử lý tin nhắn để kiểm tra spam
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        # Thêm xử lý tin nhắn để kiểm tra spam
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Khởi tạo bot
-    try:
-        await application.initialize()
-        print("Bot đã được khởi tạo thành công.")
-    except Exception as e:
-        print(f"Lỗi khi khởi tạo bot: {e}")
-        raise
-
-    # Chạy bot
-    try:
-        print("Đang khởi động bot...")
-        await application.run_polling(drop_pending_updates=True)
-    except Conflict as e:
-        print(f"Lỗi Conflict: {e}. Vui lòng kiểm tra xem bot có đang chạy ở nơi khác không!")
-        raise
-    except Exception as e:
-        print(f"Lỗi không mong muốn: {e}")
-        raise
-    finally:
-        # Dọn dẹp tài nguyên
         try:
-            await application.stop()
-            await application.shutdown()
-            print("Bot đã dừng và dọn dẹp tài nguyên thành công.")
+            # Khởi tạo bot
+            await application.initialize()
+            print("Bot đã được khởi tạo thành công.")
+
+            # Chạy bot
+            print("Đang khởi động bot...")
+            await application.start()
+            await application.updater.start_polling(drop_pending_updates=True)
+            print("Bot đang chạy...")
+
+            # Chờ vô thời hạn cho đến khi bot dừng
+            await asyncio.Event().wait()
+
+        except Conflict as e:
+            print(f"Lỗi Conflict: {e}. Vui lòng kiểm tra xem bot có đang chạy ở nơi khác không!")
+            break
         except Exception as e:
-            print(f"Lỗi khi dừng bot: {e}")
+            print(f"Lỗi không mong muốn: {e}. Thử lại sau 10 giây...")
+        finally:
+            # Dọn dẹp tài nguyên
+            try:
+                await application.updater.stop()
+                await application.stop()
+                await application.shutdown()
+                print("Bot đã dừng và dọn dẹp tài nguyên thành công.")
+            except Exception as e:
+                print(f"Lỗi khi dừng bot: {e}")
+            finally:
+                # Đóng vòng lặp sự kiện
+                loop.close()
+
+        # Nếu có lỗi, chờ 10 giây trước khi thử lại
+        print("Đang chờ 10 giây trước khi khởi động lại...")
+        time.sleep(10)
 
 # Hàm chính
-async def main():
+def main():
     # Chạy server HTTP giả trong một thread riêng
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
 
-    # Chạy bot
-    await run_bot()
+    # Chạy bot với vòng lặp retry
+    asyncio.run(run_bot_with_retry())
 
 if __name__ == "__main__":
-    # Chạy main() với asyncio.run() để đảm bảo vòng lặp sự kiện
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        print(f"Lỗi khi chạy chương trình: {e}")
-        # Thoát với mã lỗi để Render tự động khởi động lại
-        exit(1)
+    main()
