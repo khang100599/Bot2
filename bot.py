@@ -57,7 +57,7 @@ def is_subscribed(chat_id, data):
         print(f"Lỗi khi kiểm tra quyền truy cập: {e}")
         return False
 
-# Hàm xử lý lệnh /start (trước đây là /hethong)
+# Hàm xử lý lệnh /start
 async def start(update: Update, context):
     chat_id = update.message.chat.id
     data = load_data()
@@ -112,7 +112,6 @@ async def add_spam_keyword(update: Update, context):
 # Hàm reset số lần cảnh báo
 async def reset_warnings(update: Update, context):
     chat_id = update.message.chat.id
-    user_id = update.message.from_user.id
     data = load_data()
     if not is_subscribed(chat_id, data):
         await update.message.reply_text("Group này chưa đăng ký!")
@@ -127,13 +126,43 @@ async def reset_warnings(update: Update, context):
         await update.message.reply_text("Lỗi khi kiểm tra quyền admin. Thử lại sau!")
         print(f"Lỗi kiểm tra admin: {e}")
         return
+
     # Đảm bảo group có cấu trúc dữ liệu
     if str(chat_id) not in data["groups"]:
         data["groups"][str(chat_id)] = {"spam_keywords": [], "violations": {}, "ban_limit": 3, "subscription_end": "2025-12-31"}
-    # Reset số lần vi phạm của người dùng
-    data["groups"][str(chat_id)]["violations"][str(user_id)] = 0
-    save_data(data)
-    await update.message.reply_text(f"Đã reset số lần cảnh báo của bạn (@{update.message.from_user.username}) về 0. Bạn an toàn rồi! 😊")
+
+    # Nếu không có tham số, reset cho người gửi lệnh
+    if not context.args:
+        user_id = update.message.from_user.id
+        username = update.message.from_user.username
+        data["groups"][str(chat_id)]["violations"][str(user_id)] = 0
+        save_data(data)
+        await update.message.reply_text(f"Đã reset số lần cảnh báo của bạn (@{username}) về 0. Bạn an toàn rồi! 😊")
+        return
+
+    # Nếu có tham số, reset cho người được chỉ định
+    target_username = context.args[0].lstrip('@')  # Bỏ ký tự @ nếu có
+    try:
+        # Lấy danh sách thành viên trong group để tìm user_id
+        chat_members = await context.bot.get_chat_administrators(chat_id)
+        chat_members.extend((await context.bot.get_chat_members(chat_id)).users)
+        target_user = None
+        for member in chat_members:
+            if member.username and member.username.lower() == target_username.lower():
+                target_user = member
+                break
+
+        if not target_user:
+            await update.message.reply_text(f"Không tìm thấy người dùng @{target_username} trong group!")
+            return
+
+        target_user_id = target_user.id
+        data["groups"][str(chat_id)]["violations"][str(target_user_id)] = 0
+        save_data(data)
+        await update.message.reply_text(f"Đã reset số lần cảnh báo của @{target_username} về 0. Họ an toàn rồi! 😊")
+    except Exception as e:
+        await update.message.reply_text("Lỗi khi tìm người dùng. Hãy thử lại!")
+        print(f"Lỗi khi reset warnings: {e}")
 
 # Hàm xử lý tin nhắn để kiểm tra spam
 async def handle_message(update: Update, context):
