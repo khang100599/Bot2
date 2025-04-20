@@ -19,8 +19,16 @@ TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise ValueError("BOT_TOKEN phải được thiết lập trong biến môi trường")
 
+# Lấy nội dung Firebase credentials từ biến môi trường
+FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS")
+if not FIREBASE_CREDENTIALS:
+    raise ValueError("FIREBASE_CREDENTIALS phải được thiết lập trong biến môi trường")
+
+# Chuyển đổi nội dung JSON thành dictionary
+firebase_credentials = json.loads(FIREBASE_CREDENTIALS)
+
 # Cấu hình Firebase
-cred = credentials.Certificate("/etc/secrets/firebase-service-account.json")
+cred = credentials.Certificate(firebase_credentials)
 firebase_admin.initialize_app(cred, {
     'databaseURL': 'https://bot2-eb694-default-rtdb.asia-southeast1.firebasedatabase.app/'
 })
